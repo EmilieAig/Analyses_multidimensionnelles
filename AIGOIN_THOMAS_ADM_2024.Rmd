@@ -1,0 +1,661 @@
+---
+title: "R bases document"
+author: "Aigoin Emilie - Thomas Anne-Laure"
+date: "2024-10-09"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+  pdf_document: default
+---
+<br>
+
+# Setting up data
+
+### Define the path of the file
+
+```{r}
+
+# Path of the file where the data is saved
+folderPathDAT <- "../DAT"
+
+# Path of the file where the results will be saved
+folderPathRES <- "../RES"
+```
+
+### Load the different packages
+
+```{r, warning = FALSE, message = FALSE}
+
+# Package for data processing, visualization and analysis
+library(tidyverse)         
+
+# Package for creating graphics
+library(ggplot2)       
+
+# Package for manipulating data frames
+library(dplyr)
+
+library(tidyr)
+
+library(gridExtra)
+
+```
+
+### Open the file containing the data
+
+```{r}
+
+# Specify the name of the file to open
+filePath <- file.path(folderPathDAT,"/Datagenus.csv")
+
+# Open file with semicolon separations
+allData <- read.csv(filePath, sep = ";", header = TRUE)
+
+# Transform all character columns into numerical values
+allData <- allData %>% mutate_if(is.character,~ as.numeric(.))
+
+# Select specific columns :
+data <- allData %>% select(1:28,          # Counting variables for 27 tree species
+                           forest,        # Forest type
+                           geology,       # Geological type
+                           surface)       # Surface area
+
+# Delete the 1001 row that doesn't match the other rows (not a species fo tree)
+data <- data[-1001, ]     
+
+```
+
+### Data verification
+
+##### Outlier detection
+
+```{r}
+
+# Verify empty celluls
+colSums(is.na(data))  
+
+# Show where empty cells are
+which(is.na(data), arr.ind = TRUE)
+
+# Make a boxplot graph to visually detect outliers
+boxplot(data[,2:28], main = "Detection of outliers values", outline = TRUE)
+
+```
+
+##### Locate and remove outliers
+
+```{r}
+
+# If you want to remove the outliers, uncomment the part below
+
+# # Identify the index of the line containing the maximum value of gen10
+# max_index <- which.max(data$gen10)
+# 
+# # Display the line containing the outlier
+# data[max_index, ]
+# 
+# # Delete the line containing the outlier
+# data <- data[-max_index, ]
+
+```
+
+##### Set up datasets for our analyses
+
+```{r}
+
+# Data containing only generations
+data_gen <- data[,2:28]
+
+# Data containing only generations and forest types
+data_gen_forest <- data[,2:29]
+
+# Data containing only generations and geology types
+data_gen_geology <- data[,2:30]
+data_gen_geology <- data_gen_geology[, -c(28)]
+
+# Data containing only generations and surfaces
+data_gen_surface <- data[,-c(1, 29, 30)]
+
+```
+
+### Graphs
+
+##### Graph of forest type
+
+```{r}
+
+data_long <- data_gen_forest %>%
+  pivot_longer(cols = starts_with("gen"), # toutes les colonnes des espèces
+               names_to = "gen",
+               values_to = "Comptage")
+
+desired_order <- c("gen1", "gen2", "gen3", "gen4", "gen5", "gen6", "gen7",
+                   "gen8", "gen9", "gen10", "gen11", "gen12", "gen13",
+                   "gen14", "gen15", "gen16", "gen17", "gen18", "gen19",
+                   "gen20", "gen21", "gen22", "gen23", "gen24",
+                   "gen25", "gen26", "gen27")
+
+ggplot(data_long, aes(x = forest, y = Comptage, fill = gen)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Types de forêts",
+       y = "Nombre d'arbres") +
+  scale_fill_manual(values = rainbow(27),
+                    breaks = desired_order,
+                    labels = desired_order) +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))  # Centrer le titre
+
+```
+
+##### Graph of geology type
+
+```{r}
+
+data_long <- data_gen_geology %>%
+  pivot_longer(cols = starts_with("gen"), # toutes les colonnes des espèces
+               names_to = "gen",
+               values_to = "Comptage")
+
+ggplot(data_long, aes(x = geology, y = Comptage, fill = gen)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Types géologiques",
+       y = "Nombre d'arbres") +
+  scale_fill_manual(values = rainbow(27),
+                    breaks = desired_order,
+                    labels = desired_order) +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))  # Centrer le titre
+
+```
+
+# Part I
+
+### Question 1
+
+##### Density calculation: number of individuals per species / plot area
+
+```{r}
+
+# Creation of a matrix to store the results: stocking densities of per unit area for the 1000 plots
+densities <- as.data.frame(matrix(NA,
+                                  nrow = nrow(data_gen),
+                                  ncol = ncol(data_gen)))
+
+# Loop the plot number (rows) and the tree species (columns), then divide by the corresponding plot area
+for (i in 1:nrow(data_gen)) {
+  for (j in 1:ncol(data_gen)) {
+    densities[i,j] <- data_gen[i,j] / data_gen_surface$surface[i]
+  }
+}
+
+# Display results
+print("Densities are: ")
+print(densities)
+
+```
+
+##### Centering and reducing densities
+
+```{r}
+
+# Creation of a matrix to store the results
+mean_densities <- as.data.frame(matrix(NA,
+                                            nrow = 1,
+                                            ncol = 27))
+
+# Sum the densities for each species and divide by 1000 to get the mean
+for(j in 1:27) {
+  mean_densities[,j] <- sum(densities[,j]) / 1000
+}
+
+# Creation of a matrix to store the results
+sd_density <- as.data.frame(matrix(NA,
+                                            nrow = 1,
+                                            ncol = 27))
+
+# Total number of rows (observations)
+n <- nrow(densities) 
+
+# Calculate the squared difference between each density and the mean
+for (j in 1:27) {
+  sum_squared_diff <- 0
+  for (i in 1:n) {
+  sum_squared_diff <- sum_squared_diff + (densities[i, j] - mean_densities[,j])^2
+  }
+  # Compute the standard deviation using the variance formula
+  sd_density[, j] <- sqrt(sum_squared_diff / (n - 1))
+}
+
+# Creation of a matrix to store the results
+center_reduct_densities <- as.data.frame(matrix(NA,
+                                            nrow = 1,
+                                            ncol = 27))
+
+# Subtract the mean and divide by the standard deviation for each species
+for (i in 1:n) {
+  for (j in 1:27) {
+    center_reduct_densities[i,j] <- (densities[i,j] - mean_densities[,j])/(sd_density[,j])
+  }
+}
+
+# Display results
+print("The center reduct densities are: ")
+print(center_reduct_densities)
+
+```
+
+##### Calculating barycenters
+
+```{r}
+
+# Initialize the variable 'barycenter' to store the result of the barycenter calculation
+barycenter <- 0
+
+# Calculate the barycenter by summing the centered and reduced densities for each species
+# The sum is divided by 27 to obtain the average (barycenter)
+for (j in 1:27) {
+  barycenter <- (1/27) * sum(center_reduct_densities[,j])
+}
+
+# Display results
+print("Barycenters is: ")
+print(barycenter)
+
+```
+
+##### Inertia calculation
+
+```{r}
+
+# Creation of a matrix to store the results
+var <- as.data.frame(matrix(NA, 
+                             nrow = 1, 
+                             ncol = ncol(center_reduct_densities)))
+
+# Calculate the variance for each column
+for (j in 1:ncol(center_reduct_densities)) {
+  # Initialize the sum of squared differences
+  sum_squared_diff <- 0      
+  # Calculate the average for column j
+  mean_value <- mean(center_reduct_densities[, j])
+  
+  # Browse each line to calculate the sum of squared differences
+  for (i in 1:nrow(center_reduct_densities)) {
+    sum_squared_diff <- sum_squared_diff + (center_reduct_densities[i, j] - mean_value)^2
+  }
+  
+  # Calculate the variance for column j
+  var[, j] <- (1 / (nrow(center_reduct_densities) - 1)) * sum_squared_diff
+}
+
+# Calculate total inertia
+inertia_tot <- sum(var)
+
+# Display results
+print("Variance is: ")
+print(var)
+
+print("Inertia is: ")
+print(inertia_tot)
+
+```
+
+### Question 2
+
+##### Calculating the weights of seven forest types
+
+```{r}
+
+# Add forest columns to our dataset
+densities$forest <- data$forest
+center_reduct_densities$forest <- data$forest
+
+# Calculate the weights
+weights=prop.table(table(data_gen_forest$forest))
+
+# Display results
+print("Weights are: ")
+print(weights)
+
+```
+
+##### Calculation of the barycenters of the seven forest types
+
+```{r}
+
+# Calculation of barycenters for each forest type (using matrices)
+barycenter=sapply(unique(data_gen_forest$forest), function(type){
+  colMeans(as.matrix(center_reduct_densities[center_reduct_densities$forest == type, 1:27]))
+})
+
+# Display results
+print("Barycenters are: ")
+print(barycenter)
+
+```
+
+##### Calculating square Euclidean norms for each barycenter
+
+```{r}
+
+# Creation of a matrix to store the results
+norms_squared <- data.frame(matrix(NA, 
+                                 ncol = 7, 
+                                 nrow = 1))
+
+# Calculate the squared Euclidean norm for each barycenter
+for (j in 1:7) {
+  # Calculer la norme euclidienne au carré
+  norms_squared[,j] <- sum(barycenter[,j]^2)
+}
+
+# Display results
+print("Norms squared are: ")
+print(norms_squared)
+
+```
+
+##### Calculating inertia
+
+```{r}
+
+# Calculate inter-type inertia
+inertia_inter <- sum(weights * norms_squared)
+
+# Display results
+print("Inertia inter-types is: ")
+print(inertia_inter)
+
+```
+
+##### Calculate the R^2
+
+```{r}
+
+# Calculate the determination coefficient
+R2 <- inertia_inter / inertia_tot
+
+# Calculate the information percentage
+informations_gain <- R2 * 100
+
+# Display results
+print("Gain of information percentage is: ")
+print(informations_gain)
+
+```
+
+### Question 3
+
+##### R2 of type-related species
+
+```{r}
+
+# Averaging function
+mean_q3 <- function(x) {
+  sum(x) / length(x)
+}
+
+# Variance calculation function
+variance_q3 <- function(x) {
+  n <- length(x)
+  mean_x <- mean_q3(x)
+  sum((x - mean_x)^2) / n
+}
+
+# R² calculation for each species
+R2_species <- apply(center_reduct_densities[, 1:27], 2, function(x) {
+  total_variance <- variance_q3(x)
+  
+  # Calculation of inter-type variance for each variable
+  inter_variance <- sum(sapply(unique(center_reduct_densities$forest), function(type) {
+    mean_x_type <- mean(x[center_reduct_densities$forest == type])
+    weight <- length(x[center_reduct_densities$forest == type]) / length(x)
+    weight * (mean_x_type - mean_q3(x))^2
+  }))
+  
+  inter_variance / total_variance
+})
+
+# Order R2_species vector in descending order
+R2_species_ordered <- sort(R2_species, decreasing = TRUE)
+
+# Display results
+print("R2 by species are: ")
+print(R2_species_ordered)
+
+```
+
+##### R2 type-related densities
+
+```{r}
+
+# Calculate the total global variance for each species (columns 1 to 27)
+total_variance_global <- apply(center_reduct_densities[, 1:27], 2, variance_q3)
+
+# Calculate the global inter-group variance for the different forest types
+inter_variance_global <- sum(sapply(unique(center_reduct_densities$forest), function(type) {
+  # Compute the mean for each species for a given forest type
+  mean_by_type <- colMeans(center_reduct_densities[center_reduct_densities$forest == type, 1:27])
+  # Calculate the weight of each forest type (proportion of the type in the dataset)
+  weight <- nrow(center_reduct_densities[center_reduct_densities$forest == type, ]) / nrow(center_reduct_densities)
+  # Calculate the weighted variance for this forest type
+  weight * sum((mean_by_type - colMeans(center_reduct_densities[, 1:27]))^2)
+}))
+
+# Compute the R² of the partition (ratio of inter-group variance to total variance)
+R2_partition <- inter_variance_global / sum(total_variance_global)
+
+# Check the correspondence between the partition R² and the arithmetic mean of the species R² values
+
+# Calculate the sum of R² values for the species
+sum_R2_species <- sum(R2_species)
+
+# Multiply the partition R² by the number of species to get the mean
+mean_R2_species <- sum_R2_species / length(R2_species)
+
+# Display results
+print("R2 partition is: ")
+print(R2_partition)
+
+# Check if the two R² values are close enough
+if (abs(mean_R2_species - R2_partition) < 1e-10) {
+  cat("Les deux valeurs de R² sont égales.")
+} else {
+  cat("Les deux valeurs de R² sont différentes.")
+}
+
+```
+
+# Part II
+
+### Creation of matrix
+
+```{r}
+
+# Matrix X: centered-reduced densities (1000 X 1000)
+X <- center_reduct_densities[,1:27]
+X <- as.matrix(X)
+
+# Matrix Y: forest type indicators (1000 x 7)
+n_Y <- length(data$forest)            # Number of observations
+k_Y <- length(unique(data$forest))    # Number of distinct categories
+
+# Initialization of the indicator matrix
+
+Y <- matrix(0, 
+            nrow = n_Y, 
+            ncol = k_Y)
+
+# Construction of the indicator matrix
+for (i in 1:n_Y) {
+  for (j in 1:k_Y) {
+    if (data$forest[i] == j) {
+      Y[i, j] <- 1
+    }
+  }
+}
+
+# Z matrix: soil indicators (1000 x 6)
+
+n_Z <- length(data$geology)             # Number of observations
+k_Z <- length(unique(data$geology)) + 1 # Number of distinct categories
+# Caution! Because no variable 4 but we still have to count it to avoid shifting our data
+
+# Initialization of the indicator matrix
+Z <- matrix(0, 
+            nrow = n_Z, 
+            ncol = k_Z)
+
+# Construction of the indicator matrix
+for (i in 1:n_Z) {
+  for (j in 1:k_Z) {
+    if (data$geology[i] == j) {
+      Z[i, j] <- 1
+    }
+  }
+}
+
+Z <- Z[,-4]
+
+# Weight matrices
+n <- nrow(X)
+p <- ncol(X)
+
+# Matrix W: individual weights (1000 x 1000)
+W <- diag(1 / n, n, n)
+
+# Matrix M: variable weights (27 x 27)
+M <- diag(1 / p, p, p)
+
+```
+
+### Creation of functions to calculate projections and traces
+
+```{r}
+
+# Functions for calculating projections
+project_matrix <- function(A, B) {
+  B %*% solve(t(B) %*% B) %*% t(B) %*% A
+}
+
+# Function for calculating traces
+tr <- function(P) { 
+  sum(diag(P)) 
+}
+
+```
+
+### Question 1
+
+##### Calcul of projection of Y
+
+```{r}
+
+# Calculation of forest type projections
+proj_Y <- Y %*% solve(t(Y) %*% Y) %*% t(Y)
+
+# # Display results
+# print("The projection matrix of Y is: ")
+# print(P_Y)
+
+```
+
+##### Calculation of the projection of X on the j-th column
+
+```{r}
+
+# Calculating the projections of each x^j onto the space of X
+proj_xj <- list()
+
+# Calculate the projection of each column x^j onto the entire space X
+for (j in 1:p) {
+  proj_xj[[j]] <- project_matrix(X, X[, j, drop = FALSE])
+}
+
+# # Display results
+# print("The projection of X on the j-th column is: ")
+# print(proj_X_xj)
+
+```
+
+##### Calculation of the projection of X on the j-th column and the projection of Y
+
+```{r}
+
+# Initialize a vector to store traces
+traces_proj_xj_proj_Y <- numeric(p)
+
+# Creation of a matrix to store the results
+for (j in 1:p) {
+  proj_xj <- project_matrix(X, X[, j, drop = FALSE])
+  
+  # Projection of x^j on Y
+  proj_xj_proj_Y <- project_matrix(proj_xj, Y)
+  
+  # Calculation of the trace of projection of x^j and projection of Y
+  traces_proj_xj_proj_Y[j] <- tr(proj_xj_proj_Y)
+}
+
+# Display results
+print("The projection of X on the j-th column and the projection of Y is: ")
+print(traces_proj_xj_proj_Y)
+
+```
+
+##### Calculation of the R trace of the projection onto Y
+
+```{r}
+
+# Calculation of R
+R <- X %*% M %*% t(X) %*% W
+
+# Calculation of tr(R * Pi_Y)
+trace_R_proj_Y <- tr(R %*% proj_Y)
+
+# Display results
+print("The R trace of the projection onto Y is: ")
+print(trace_R_proj_Y)
+
+```
+
+### Question 2
+
+##### Calculation of each traces of projection of x^j and projection of Z
+
+```{r}
+
+# Initialize a vector to store traces
+traces_proj_xj_proj_Z <- matrix(NA, 
+                       nrow = p, 
+                       ncol = 1)
+
+# Calculation of the projection of x^j onto Z
+for (j in 1:p) {
+  proj_xj_proj_Z <- project_matrix(X[, j, drop = FALSE], Z)
+  
+  # Calculation of the trace of projection of x^j and projection of Z
+  traces_proj_xj_proj_Z[j] <- tr(proj_xj_proj_Z)
+}
+
+# Display results
+print("Traces of each projection of x^j and projection of Z are: ")
+print(traces_proj_xj_proj_Z)
+
+```
+
+##### Calculation of trace of R and the projection of Z
+
+```{r}
+
+# Compute the matrix product of R with the projection matrix of Z
+R_proj_Z <- R %*% project_matrix(Z, Z)
+
+# Calculate the trace of the resulting matrix R_PZ
+trace_R_proj_Z <- tr(R_proj_Z)
+
+# Display results
+print("The trace of R and the projection of Z is: ")
+print(trace_R_proj_Z)
+
+```
